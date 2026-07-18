@@ -217,8 +217,14 @@ with tab_congviec:
                                 supabase.table("subtasks").delete().eq("id", d["id"]).execute()
                                 st.rerun()
 
-                        # ---- THÊM NHIỀU ĐẦU VIỆC KÈM HẠN, LƯU MỘT LẦN ----
+                                    # ---- THÊM NHIỀU ĐẦU VIỆC KÈM HẠN, LƯU MỘT LẦN ----
             st.markdown("**➕ Thêm đầu việc mới (nhập nhiều dòng, chọn ngày, rồi lưu một lần)**")
+
+            # biến đếm để làm mới bảng sau khi lưu (mỗi kế hoạch một biến riêng)
+            dem_key = f"reset_{kh['id']}"
+            if dem_key not in st.session_state:
+                st.session_state[dem_key] = 0
+
             bang_moi = pd.DataFrame(columns=["Đầu việc", "Hạn chót"])
             ket_qua_nhap = st.data_editor(
                 bang_moi,
@@ -229,7 +235,7 @@ with tab_congviec:
                     "Đầu việc": st.column_config.TextColumn("Đầu việc", width="large"),
                     "Hạn chót": st.column_config.DateColumn("Hạn chót", format="YYYY-MM-DD"),
                 },
-                key=f"editor_them_{kh['id']}"
+                key=f"editor_them_{kh['id']}_{st.session_state[dem_key]}"
             )
             if st.button("💾 Lưu tất cả đầu việc", key=f"luuall_{kh['id']}"):
                 base = len(kh["_dau_viec"])
@@ -246,10 +252,12 @@ with tab_congviec:
                     }).execute()
                     dem += 1
                 if dem > 0:
+                    st.session_state[dem_key] += 1   # đổi key -> bảng trống lại
                     st.success(f"Đã thêm {dem} đầu việc.")
                     st.rerun()
                 else:
                     st.warning("Bạn chưa nhập đầu việc nào.")
+
 
 
             st.divider()
