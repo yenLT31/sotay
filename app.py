@@ -19,6 +19,10 @@ div[data-testid="stExpander"] {
     border: 1px solid #e6eaf0; border-radius: 12px; margin-bottom: 8px;
 }
 .stButton button {border-radius: 10px;}
+/* Thu gọn dòng đầu việc */
+div[data-testid="stCheckbox"] {margin-top: 2px;}
+.viec-row {padding: 2px 0; border-bottom: 1px solid #f0f2f6;}
+.ghichu-nho {color:#8a94a6; font-size:0.82rem; margin-left:2px;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -48,6 +52,17 @@ def han_con_lai(deadline_str):
         return None
     d = pd.to_datetime(deadline_str).date()
     return (d - date.today()).days
+
+def nhan_han(d):
+    """Trả về chuỗi hạn chót có màu để hiện trên dòng."""
+    if not d["deadline"] or d["is_done"]:
+        return ""
+    con = han_con_lai(d["deadline"])
+    if con is not None and con < 0:
+        return f"  🔴 {d['deadline']} (quá {abs(con)}n)"
+    elif con is not None and con <= 7:
+        return f"  🟠 {d['deadline']} (còn {con}n)"
+    return f"  ⏰ {d['deadline']}"
 
 # ---------- Lấy dữ liệu ----------
 ket_qua = supabase.table("tasks").select("*").order("start_date").execute()
@@ -93,11 +108,11 @@ with tab_lich:
     for kh in danh_sach:
         tt = kh["_trang_thai"]
         if tt == "chua_kich_hoat":
-            mau = "#2563eb"      # xanh dương
+            mau = "#2563eb"
         elif tt == "dang_tien_hanh":
-            mau = "#111111"      # đen
+            mau = "#111111"
         else:
-            mau = "#cbd5e1"      # xám nhạt
+            mau = "#cbd5e1"
         su_kien.append({
             "title": kh["name"], "start": kh["start_date"],
             "allDay": True, "color": mau,
@@ -171,48 +186,40 @@ with tab_congviec:
             if tong > 0:
                 st.progress(xong / tong)
 
-            # ---- Từng đầu việc: tick + sửa/xóa/ghi chú ----
+            # ---- Từng đầu việc: DÒNG GỌN ----
             for d in kh["_dau_viec"]:
-                with st.container(border=True):
-                    cc1, cc2 = st.columns([0.06, 0.94])
-                    with cc1:
-                        moi = st.checkbox(" ", value=d["is_done"], key=f"chk_{d['id']}",
-                                          label_visibility="collapsed")
-                        if moi != d["is_done"]:
-                            supabase.table("subtasks").update({"is_done": moi}).eq("id", d["id"]).execute()
-                            st.rerun()
-                    with cc2:
-                        tieu = f"~~{d['content']}~~" if d["is_done"] else f"**{d['content']}**"
-                        con = han_con_lai(d["deadline"])
-                        if d["deadline"] and not d["is_done"]:
-                            if con is not None and con < 0:
-                                tieu += f"  🔴 {d['deadline']} (quá {abs(con)}n)"
-                            elif con is not None and con <= 7:
-                                tieu += f"  🟠 {d['deadline']} (còn {con}n)"
-                            else:
-                                tieu += f"  ⏰ {d['deadline']}"
-                        st.markdown(tieu)
-                        if d.get("note"):
-                            st.caption("📝 " + d["note"])
-
-                        with st.popover("✏️ Sửa / 🗑️ Xóa"):
-                            with st.form(f"suadv_{d['id']}"):
-                                nd = st.text_input("Nội dung", value=d["content"])
-                                gc = st.text_area("Ghi chú", value=d.get("note") or "")
-                                hd = st.date_input("Hạn chót",
-                                    value=pd.to_datetime(d["deadline"]).date() if d["deadline"] else None)
-                                s1, s2 = st.columns(2)
-                                luu = s1.form_submit_button("💾 Lưu")
-                                xoa = s2.form_submit_button("🗑️ Xóa đầu việc")
-                                if luu:
-                                    supabase.table("subtasks").update({
-                                        "content": nd, "note": gc,
-                                        "deadline": str(hd) if hd else None
-                                    }).eq("id", d["id"]).execute()
-                                    st.rerun()
-                                if xoa:
-                                    supabase.table("subtasks").delete().eq("id", d["id"]).execute()
-                                    st.rerun()
+                cc1, cc2, cc3 = st.columns([0.05, 0.83, 0.12])
+                with cc1:
+                    moi = st.checkbox(" ", value=d["is_done"], key=f"chk_{d['id']}",
+                                      label_visibility="collapsed")
+                    if moi != d["is_done"]:
+                        supabase.table("subtasks").update({"is_done": moi}).eq("id", d["id"]).execute()
+                        st.rerun()
+                with cc2:
+                    ten_viec = f"~~{d['content']}~~" if d["is_done"] else d["content"]
+                    st.markdown(ten_viec + nhan_han(d))
+                    if d.get("note"):
+                        st.markdown(f"<span class='ghichu-nho'>📝 {d['note']}</span>",
+                                    unsafe_allow_html=True)
+                with cc3:
+                    with st.popover("⋯"):
+                        with st.form(f"suadv_{d['id']}"):
+                            nd = st.text_input("Nội dung", value=d["content"])
+                            gc = st.text_area("Ghi chú", value=d.get("note") or "")
+                            hd = st.date_input("Hạn chót",
+                                value=pd.to_datetime(d["deadline"]).date() if d["deadline"] else None)
+                            s1, s2 = st.columns(2)
+                            luu = s1.form_submit_button("💾 Lưu")
+                            xoa = s2.form_submit_button("🗑️ Xóa")
+                            if luu:
+                                supabase.table("subtasks").update({
+                                    "content": nd, "note": gc,
+                                    "deadline": str(hd) if hd else None
+                                }).eq("id", d["id"]).execute()
+                                st.rerun()
+                            if xoa:
+                                supabase.table("subtasks").delete().eq("id", d["id"]).execute()
+                                st.rerun()
 
             # ---- Thêm nhiều đầu việc một lần ----
             st.markdown("**➕ Thêm đầu việc mới (mỗi dòng một việc)**")
