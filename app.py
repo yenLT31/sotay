@@ -217,7 +217,7 @@ with tab_congviec:
                                 supabase.table("subtasks").delete().eq("id", d["id"]).execute()
                                 st.rerun()
 
-            # ---- THÊM NHIỀU ĐẦU VIỆC KÈM HẠN, LƯU MỘT LẦN ----
+                        # ---- THÊM NHIỀU ĐẦU VIỆC KÈM HẠN, LƯU MỘT LẦN ----
             st.markdown("**➕ Thêm đầu việc mới (nhập nhiều dòng, chọn ngày, rồi lưu một lần)**")
             bang_moi = pd.DataFrame(columns=["Đầu việc", "Hạn chót"])
             ket_qua_nhap = st.data_editor(
@@ -250,6 +250,7 @@ with tab_congviec:
                     st.rerun()
                 else:
                     st.warning("Bạn chưa nhập đầu việc nào.")
+
 
             st.divider()
             # ---- Nhân bản / Sửa / Xóa kế hoạch ----
