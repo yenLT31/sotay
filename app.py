@@ -19,9 +19,6 @@ div[data-testid="stExpander"] {
     border: 1px solid #e6eaf0; border-radius: 12px; margin-bottom: 8px;
 }
 .stButton button {border-radius: 10px;}
-/* Thu gọn dòng đầu việc */
-div[data-testid="stCheckbox"] {margin-top: 2px;}
-.viec-row {padding: 2px 0; border-bottom: 1px solid #f0f2f6;}
 .ghichu-nho {color:#8a94a6; font-size:0.82rem; margin-left:2px;}
 </style>
 """, unsafe_allow_html=True)
@@ -54,7 +51,6 @@ def han_con_lai(deadline_str):
     return (d - date.today()).days
 
 def nhan_han(d):
-    """Trả về chuỗi hạn chót có màu để hiện trên dòng."""
     if not d["deadline"] or d["is_done"]:
         return ""
     con = han_con_lai(d["deadline"])
@@ -186,7 +182,7 @@ with tab_congviec:
             if tong > 0:
                 st.progress(xong / tong)
 
-            # ---- Từng đầu việc: DÒNG GỌN ----
+            # ---- Từng đầu việc: dòng gọn ----
             for d in kh["_dau_viec"]:
                 cc1, cc2, cc3 = st.columns([0.05, 0.83, 0.12])
                 with cc1:
@@ -221,23 +217,36 @@ with tab_congviec:
                                 supabase.table("subtasks").delete().eq("id", d["id"]).execute()
                                 st.rerun()
 
-            # ---- Thêm nhiều đầu việc một lần ----
-            st.markdown("**➕ Thêm đầu việc mới (mỗi dòng một việc)**")
-            vung = st.text_area(
-                "Nhập nhiều đầu việc", key=f"nhap_{kh['id']}",
-                label_visibility="collapsed",
-                placeholder="Ví dụ:\nLên lịch\nKiểm soát\nBáo cáo"
+            # ---- THÊM NHIỀU ĐẦU VIỆC KÈM HẠN, LƯU MỘT LẦN ----
+            st.markdown("**➕ Thêm đầu việc mới (nhập nhiều dòng, chọn ngày, rồi lưu một lần)**")
+            bang_moi = pd.DataFrame(columns=["Đầu việc", "Hạn chót"])
+            ket_qua_nhap = st.data_editor(
+                bang_moi,
+                num_rows="dynamic",
+                hide_index=True,
+                use_container_width=True,
+                column_config={
+                    "Đầu việc": st.column_config.TextColumn("Đầu việc", width="large"),
+                    "Hạn chót": st.column_config.DateColumn("Hạn chót", format="YYYY-MM-DD"),
+                },
+                key=f"editor_them_{kh['id']}"
             )
             if st.button("💾 Lưu tất cả đầu việc", key=f"luuall_{kh['id']}"):
-                cac_dong = [x.strip() for x in vung.split("\n") if x.strip()]
-                if cac_dong:
-                    base = len(kh["_dau_viec"])
-                    for i, nd in enumerate(cac_dong):
-                        supabase.table("subtasks").insert({
-                            "task_id": kh["id"], "content": nd,
-                            "is_done": False, "sort_order": base + i
-                        }).execute()
-                    st.success(f"Đã thêm {len(cac_dong)} đầu việc.")
+                base = len(kh["_dau_viec"])
+                dem = 0
+                for _, dong in ket_qua_nhap.iterrows():
+                    nd = str(dong["Đầu việc"]).strip()
+                    if nd == "" or nd == "nan":
+                        continue
+                    han = str(dong["Hạn chót"]) if pd.notna(dong["Hạn chót"]) else None
+                    supabase.table("subtasks").insert({
+                        "task_id": kh["id"], "content": nd,
+                        "deadline": han, "is_done": False,
+                        "sort_order": base + dem
+                    }).execute()
+                    dem += 1
+                if dem > 0:
+                    st.success(f"Đã thêm {dem} đầu việc.")
                     st.rerun()
                 else:
                     st.warning("Bạn chưa nhập đầu việc nào.")
