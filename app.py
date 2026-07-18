@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import date, datetime
+from datetime import date
 from supabase import create_client
 from streamlit_calendar import calendar
 
@@ -53,7 +53,6 @@ def han_con_lai(deadline_str):
 ket_qua = supabase.table("tasks").select("*").order("start_date").execute()
 danh_sach = ket_qua.data
 
-# gắn thêm thông tin trạng thái cho mỗi kế hoạch
 for kh in danh_sach:
     dv = lay_dau_viec(kh["id"])
     tt, tong, xong = tinh_trang_thai(dv)
@@ -82,199 +81,192 @@ c4.metric("✅ Hoàn thành", so_xong)
 
 st.divider()
 
-# ================================================================
-# LỊCH THÁNG
-# ================================================================
-st.header("🗓️ Lịch kế hoạch")
-
-su_kien = []
-for kh in danh_sach:
-    tt = kh["_trang_thai"]
-    if tt == "chua_kich_hoat":
-        mau = "#2563eb"      # xanh dương
-    elif tt == "dang_tien_hanh":
-        mau = "#111111"      # đen
-    else:
-        mau = "#cbd5e1"      # xám nhạt (hoàn thành)
-    su_kien.append({
-        "title": kh["name"],
-        "start": kh["start_date"],
-        "allDay": True,
-        "color": mau,
-    })
-
-tuy_chon_lich = {
-    "initialView": "dayGridMonth",
-    "locale": "vi",
-    "headerToolbar": {
-        "left": "prev,next today",
-        "center": "title",
-        "right": "",
-    },
-    "height": 520,
-}
-
-calendar(events=su_kien, options=tuy_chon_lich, key="lich_thang")
-st.caption("🔵 Xanh: chưa kích hoạt  •  ⚫ Đen: đang tiến hành  •  ⚪ Xám nhạt: đã hoàn thành")
-
-st.divider()
+tab_lich, tab_congviec = st.tabs(["🗓️ Lịch & Kế hoạch", "📋 Danh mục công việc"])
 
 # ================================================================
-# TẠO KẾ HOẠCH MỚI
+# TAB 1: LỊCH + TẠO KẾ HOẠCH
 # ================================================================
-with st.expander("➕ Tạo kế hoạch mới"):
-    with st.form("form_tao", clear_on_submit=True):
-        ten = st.text_input("Tên kế hoạch")
-        mo_ta = st.text_area("Ghi chú (không bắt buộc)")
-        ngay = st.date_input("Ngày triển khai", value=date.today())
-        if st.form_submit_button("Lưu kế hoạch"):
-            if ten.strip() == "":
-                st.warning("Bạn cần nhập tên kế hoạch.")
-            else:
-                supabase.table("tasks").insert({
-                    "name": ten, "description": mo_ta, "start_date": str(ngay)
-                }).execute()
-                st.success("Đã lưu: " + ten)
-                st.rerun()
+with tab_lich:
+    st.header("🗓️ Lịch kế hoạch")
 
-# ---------- Bộ lọc ----------
-col_a, col_b = st.columns([2, 3])
-with col_a:
-    che_do = st.radio("Hiển thị:", ["Đang tiến hành", "Tất cả"], horizontal=True)
-with col_b:
-    tu_khoa = st.text_input("🔍 Tìm kiếm", placeholder="Nhập từ khóa...")
+    su_kien = []
+    for kh in danh_sach:
+        tt = kh["_trang_thai"]
+        if tt == "chua_kich_hoat":
+            mau = "#2563eb"      # xanh dương
+        elif tt == "dang_tien_hanh":
+            mau = "#111111"      # đen
+        else:
+            mau = "#cbd5e1"      # xám nhạt
+        su_kien.append({
+            "title": kh["name"], "start": kh["start_date"],
+            "allDay": True, "color": mau,
+        })
 
-st.header("📋 Danh sách công việc")
+    tuy_chon_lich = {
+        "initialView": "dayGridMonth", "locale": "vi",
+        "headerToolbar": {"left": "prev,next today", "center": "title", "right": ""},
+        "height": 520,
+    }
+    calendar(events=su_kien, options=tuy_chon_lich, key="lich_thang")
+    st.caption("🔵 Xanh: chưa kích hoạt  •  ⚫ Đen: đang tiến hành  •  ⚪ Xám nhạt: đã hoàn thành")
 
-# ================================================================
-# DANH SÁCH KẾ HOẠCH
-# ================================================================
-for kh in danh_sach:
-    tt = kh["_trang_thai"]
-    tong, xong = kh["_tong"], kh["_xong"]
-
-    if che_do == "Đang tiến hành" and tt == "hoan_thanh":
-        continue
-    if tu_khoa and tu_khoa.lower() not in kh["name"].lower():
-        continue
-
-    if tt == "chua_kich_hoat":
-        nhan = "🔵 Chưa kích hoạt"
-    elif tt == "hoan_thanh":
-        nhan = "✅ Hoàn thành"
-    else:
-        nhan = f"🔄 Đang tiến hành ({xong}/{tong})"
-
-    # deadline gần nhất của việc chưa xong
-    hans = [d["deadline"] for d in kh["_dau_viec"] if not d["is_done"] and d["deadline"]]
-    hng = min(hans) if hans else None
-    tieu_de = f"📌 {kh['name']}  —  {nhan}"
-    if hng:
-        tieu_de += f"   ⏰ {hng}"
-
-    with st.expander(tieu_de):
-        st.caption("Ngày triển khai: " + str(kh["start_date"]))
-        if kh["description"]:
-            st.write(kh["description"])
-        if tong > 0:
-            st.progress(xong / tong)
-
-        # ---- Hiển thị & sửa từng đầu việc ----
-        for d in kh["_dau_viec"]:
-            with st.container(border=True):
-                cc1, cc2 = st.columns([0.06, 0.94])
-                with cc1:
-                    moi = st.checkbox(" ", value=d["is_done"], key=f"chk_{d['id']}",
-                                      label_visibility="collapsed")
-                    if moi != d["is_done"]:
-                        supabase.table("subtasks").update({"is_done": moi}).eq("id", d["id"]).execute()
-                        st.rerun()
-                with cc2:
-                    tieu = f"~~{d['content']}~~" if d["is_done"] else f"**{d['content']}**"
-                    con = han_con_lai(d["deadline"])
-                    if d["deadline"] and not d["is_done"]:
-                        if con is not None and con < 0:
-                            tieu += f"  🔴 {d['deadline']} (quá {abs(con)}n)"
-                        elif con is not None and con <= 7:
-                            tieu += f"  🟠 {d['deadline']} (còn {con}n)"
-                        else:
-                            tieu += f"  ⏰ {d['deadline']}"
-                    st.markdown(tieu)
-                    if d.get("note"):
-                        st.caption("📝 " + d["note"])
-
-                    with st.popover("✏️ Sửa / 🗑️ Xóa"):
-                        with st.form(f"suadv_{d['id']}"):
-                            nd = st.text_input("Nội dung", value=d["content"])
-                            gc = st.text_area("Ghi chú", value=d.get("note") or "")
-                            hd = st.date_input("Hạn chót",
-                                value=pd.to_datetime(d["deadline"]).date() if d["deadline"] else None)
-                            s1, s2 = st.columns(2)
-                            luu = s1.form_submit_button("💾 Lưu")
-                            xoa = s2.form_submit_button("🗑️ Xóa đầu việc")
-                            if luu:
-                                supabase.table("subtasks").update({
-                                    "content": nd, "note": gc,
-                                    "deadline": str(hd) if hd else None
-                                }).eq("id", d["id"]).execute()
-                                st.rerun()
-                            if xoa:
-                                supabase.table("subtasks").delete().eq("id", d["id"]).execute()
-                                st.rerun()
-
-        # ---- Thêm NHIỀU đầu việc một lần rồi mới lưu ----
-        st.markdown("**➕ Thêm đầu việc mới (mỗi dòng một việc)**")
-        vung = st.text_area(
-            "Nhập nhiều đầu việc, mỗi dòng một việc",
-            key=f"nhap_{kh['id']}", label_visibility="collapsed",
-            placeholder="Ví dụ:\nLên lịch\nKiểm soát\nBáo cáo"
-        )
-        if st.button("💾 Lưu tất cả đầu việc", key=f"luuall_{kh['id']}"):
-            cac_dong = [x.strip() for x in vung.split("\n") if x.strip()]
-            if cac_dong:
-                base = len(kh["_dau_viec"])
-                for i, nd in enumerate(cac_dong):
-                    supabase.table("subtasks").insert({
-                        "task_id": kh["id"], "content": nd,
-                        "is_done": False, "sort_order": base + i
+    st.divider()
+    with st.expander("➕ Tạo kế hoạch mới", expanded=True):
+        with st.form("form_tao", clear_on_submit=True):
+            ten = st.text_input("Tên kế hoạch")
+            mo_ta = st.text_area("Ghi chú (không bắt buộc)")
+            ngay = st.date_input("Ngày triển khai", value=date.today())
+            if st.form_submit_button("Lưu kế hoạch"):
+                if ten.strip() == "":
+                    st.warning("Bạn cần nhập tên kế hoạch.")
+                else:
+                    supabase.table("tasks").insert({
+                        "name": ten, "description": mo_ta, "start_date": str(ngay)
                     }).execute()
-                st.success(f"Đã thêm {len(cac_dong)} đầu việc.")
-                st.rerun()
-            else:
-                st.warning("Bạn chưa nhập đầu việc nào.")
+                    st.success("Đã lưu: " + ten)
+                    st.rerun()
 
-        st.divider()
-        # ---- Nhân bản / Sửa / Xóa kế hoạch ----
-        b1, b2 = st.columns(2)
-        with b1:
-            if st.button("📄 Nhân bản kế hoạch", key=f"nb_{kh['id']}"):
-                moi = supabase.table("tasks").insert({
-                    "name": kh["name"] + " (bản sao)",
-                    "description": kh["description"],
-                    "start_date": kh["start_date"]
-                }).execute()
-                new_id = moi.data[0]["id"]
-                for d in kh["_dau_viec"]:
-                    supabase.table("subtasks").insert({
-                        "task_id": new_id, "content": d["content"],
-                        "note": d.get("note"), "deadline": d["deadline"],
-                        "is_done": False, "sort_order": d["sort_order"]
+# ================================================================
+# TAB 2: DANH MỤC CÔNG VIỆC
+# ================================================================
+with tab_congviec:
+    col_a, col_b = st.columns([2, 3])
+    with col_a:
+        che_do = st.radio("Hiển thị:", ["Đang tiến hành", "Tất cả"], horizontal=True)
+    with col_b:
+        tu_khoa = st.text_input("🔍 Tìm kiếm", placeholder="Nhập từ khóa...")
+
+    st.header("📋 Danh sách công việc")
+
+    if len(danh_sach) == 0:
+        st.info("Chưa có kế hoạch nào. Sang tab '🗓️ Lịch & Kế hoạch' để tạo mới.")
+
+    for kh in danh_sach:
+        tt = kh["_trang_thai"]
+        tong, xong = kh["_tong"], kh["_xong"]
+
+        if che_do == "Đang tiến hành" and tt == "hoan_thanh":
+            continue
+        if tu_khoa and tu_khoa.lower() not in kh["name"].lower():
+            continue
+
+        if tt == "chua_kich_hoat":
+            nhan = "🔵 Chưa kích hoạt"
+        elif tt == "hoan_thanh":
+            nhan = "✅ Hoàn thành"
+        else:
+            nhan = f"🔄 Đang tiến hành ({xong}/{tong})"
+
+        hans = [d["deadline"] for d in kh["_dau_viec"] if not d["is_done"] and d["deadline"]]
+        hng = min(hans) if hans else None
+        tieu_de = f"📌 {kh['name']}  —  {nhan}"
+        if hng:
+            tieu_de += f"   ⏰ {hng}"
+
+        with st.expander(tieu_de):
+            st.caption("Ngày triển khai: " + str(kh["start_date"]))
+            if kh["description"]:
+                st.write(kh["description"])
+            if tong > 0:
+                st.progress(xong / tong)
+
+            # ---- Từng đầu việc: tick + sửa/xóa/ghi chú ----
+            for d in kh["_dau_viec"]:
+                with st.container(border=True):
+                    cc1, cc2 = st.columns([0.06, 0.94])
+                    with cc1:
+                        moi = st.checkbox(" ", value=d["is_done"], key=f"chk_{d['id']}",
+                                          label_visibility="collapsed")
+                        if moi != d["is_done"]:
+                            supabase.table("subtasks").update({"is_done": moi}).eq("id", d["id"]).execute()
+                            st.rerun()
+                    with cc2:
+                        tieu = f"~~{d['content']}~~" if d["is_done"] else f"**{d['content']}**"
+                        con = han_con_lai(d["deadline"])
+                        if d["deadline"] and not d["is_done"]:
+                            if con is not None and con < 0:
+                                tieu += f"  🔴 {d['deadline']} (quá {abs(con)}n)"
+                            elif con is not None and con <= 7:
+                                tieu += f"  🟠 {d['deadline']} (còn {con}n)"
+                            else:
+                                tieu += f"  ⏰ {d['deadline']}"
+                        st.markdown(tieu)
+                        if d.get("note"):
+                            st.caption("📝 " + d["note"])
+
+                        with st.popover("✏️ Sửa / 🗑️ Xóa"):
+                            with st.form(f"suadv_{d['id']}"):
+                                nd = st.text_input("Nội dung", value=d["content"])
+                                gc = st.text_area("Ghi chú", value=d.get("note") or "")
+                                hd = st.date_input("Hạn chót",
+                                    value=pd.to_datetime(d["deadline"]).date() if d["deadline"] else None)
+                                s1, s2 = st.columns(2)
+                                luu = s1.form_submit_button("💾 Lưu")
+                                xoa = s2.form_submit_button("🗑️ Xóa đầu việc")
+                                if luu:
+                                    supabase.table("subtasks").update({
+                                        "content": nd, "note": gc,
+                                        "deadline": str(hd) if hd else None
+                                    }).eq("id", d["id"]).execute()
+                                    st.rerun()
+                                if xoa:
+                                    supabase.table("subtasks").delete().eq("id", d["id"]).execute()
+                                    st.rerun()
+
+            # ---- Thêm nhiều đầu việc một lần ----
+            st.markdown("**➕ Thêm đầu việc mới (mỗi dòng một việc)**")
+            vung = st.text_area(
+                "Nhập nhiều đầu việc", key=f"nhap_{kh['id']}",
+                label_visibility="collapsed",
+                placeholder="Ví dụ:\nLên lịch\nKiểm soát\nBáo cáo"
+            )
+            if st.button("💾 Lưu tất cả đầu việc", key=f"luuall_{kh['id']}"):
+                cac_dong = [x.strip() for x in vung.split("\n") if x.strip()]
+                if cac_dong:
+                    base = len(kh["_dau_viec"])
+                    for i, nd in enumerate(cac_dong):
+                        supabase.table("subtasks").insert({
+                            "task_id": kh["id"], "content": nd,
+                            "is_done": False, "sort_order": base + i
+                        }).execute()
+                    st.success(f"Đã thêm {len(cac_dong)} đầu việc.")
+                    st.rerun()
+                else:
+                    st.warning("Bạn chưa nhập đầu việc nào.")
+
+            st.divider()
+            # ---- Nhân bản / Sửa / Xóa kế hoạch ----
+            b1, b2 = st.columns(2)
+            with b1:
+                if st.button("📄 Nhân bản kế hoạch", key=f"nb_{kh['id']}"):
+                    moi = supabase.table("tasks").insert({
+                        "name": kh["name"] + " (bản sao)",
+                        "description": kh["description"],
+                        "start_date": kh["start_date"]
                     }).execute()
-                st.success("Đã nhân bản.")
-                st.rerun()
-        with b2:
-            with st.popover("✏️ Sửa / 🗑️ Xóa kế hoạch"):
-                with st.form(f"suakh_{kh['id']}"):
-                    tn = st.text_input("Tên kế hoạch", value=kh["name"])
-                    mt = st.text_area("Ghi chú", value=kh["description"] or "")
-                    ng = st.date_input("Ngày triển khai",
-                        value=pd.to_datetime(kh["start_date"]).date())
-                    x1, x2 = st.columns(2)
-                    if x1.form_submit_button("💾 Lưu"):
-                        supabase.table("tasks").update({
-                            "name": tn, "description": mt, "start_date": str(ng)
-                        }).eq("id", kh["id"]).execute()
-                        st.rerun()
-                    if x2.form_submit_button("🗑️ Xóa cả kế hoạch"):
-                        supabase.table("tasks").delete().eq("id", kh["id"]).execute()
-                        st.rerun()
+                    new_id = moi.data[0]["id"]
+                    for d in kh["_dau_viec"]:
+                        supabase.table("subtasks").insert({
+                            "task_id": new_id, "content": d["content"],
+                            "note": d.get("note"), "deadline": d["deadline"],
+                            "is_done": False, "sort_order": d["sort_order"]
+                        }).execute()
+                    st.success("Đã nhân bản.")
+                    st.rerun()
+            with b2:
+                with st.popover("✏️ Sửa / 🗑️ Xóa kế hoạch"):
+                    with st.form(f"suakh_{kh['id']}"):
+                        tn = st.text_input("Tên kế hoạch", value=kh["name"])
+                        mt = st.text_area("Ghi chú", value=kh["description"] or "")
+                        ng = st.date_input("Ngày triển khai",
+                            value=pd.to_datetime(kh["start_date"]).date())
+                        x1, x2 = st.columns(2)
+                        if x1.form_submit_button("💾 Lưu"):
+                            supabase.table("tasks").update({
+                                "name": tn, "description": mt, "start_date": str(ng)
+                            }).eq("id", kh["id"]).execute()
+                            st.rerun()
+                        if x2.form_submit_button("🗑️ Xóa cả kế hoạch"):
+                            supabase.table("tasks").delete().eq("id", kh["id"]).execute()
+                            st.rerun()
