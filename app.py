@@ -6,11 +6,19 @@ from streamlit_calendar import calendar
 
 st.set_page_config(page_title="Sổ tay công việc", layout="wide")
 
+# ---------- Bảng màu dịu mắt ----------
+MAU_CHUA = "#6b9bd1"      # xanh dương dịu - chưa kích hoạt
+MAU_DANG = "#4a5568"      # xám xanh đậm - đang tiến hành
+MAU_XONG = "#cbd5e1"      # xám nhạt - hoàn thành
+MAU_NOTE = "#8b7fd4"      # tím lavender - ngày quan trọng
+MAU_QUA_HAN = "#c05621"   # đỏ gạch dịu - quá hạn
+MAU_SAP_HAN = "#b7791f"   # cam đất dịu - sắp hạn
+
 # ---------- CSS trang trí ----------
 st.markdown("""
 <style>
 .block-container {padding-top: 2rem; max-width: 1100px;}
-h1 {font-weight: 800;}
+h1 {font-weight: 800; color:#2d3748;}
 div[data-testid="stMetric"] {
     background: #f7f9fc; border: 1px solid #e6eaf0;
     border-radius: 14px; padding: 12px 8px; text-align: center;
@@ -72,6 +80,10 @@ for kh in danh_sach:
     kh["_tong"] = tong
     kh["_xong"] = xong
 
+# lấy ghi chú ngày quan trọng
+gc_kq = supabase.table("notes").select("*").order("ngay").execute()
+ghi_chu = gc_kq.data
+
 # ---------- Ô tổng quan ----------
 so_dang = len([k for k in danh_sach if k["_trang_thai"] == "dang_tien_hanh"])
 so_chua = len([k for k in danh_sach if k["_trang_thai"] == "chua_kich_hoat"])
@@ -95,7 +107,7 @@ st.divider()
 tab_lich, tab_congviec = st.tabs(["🗓️ Lịch & Kế hoạch", "📋 Danh mục công việc"])
 
 # ================================================================
-# TAB 1: LỊCH + TẠO KẾ HOẠCH
+# TAB 1: LỊCH + TẠO KẾ HOẠCH + GHI CHÚ NGÀY QUAN TRỌNG
 # ================================================================
 with tab_lich:
     st.header("🗓️ Lịch kế hoạch")
@@ -104,14 +116,20 @@ with tab_lich:
     for kh in danh_sach:
         tt = kh["_trang_thai"]
         if tt == "chua_kich_hoat":
-            mau = "#2563eb"
+            mau = MAU_CHUA
         elif tt == "dang_tien_hanh":
-            mau = "#111111"
+            mau = MAU_DANG
         else:
-            mau = "#cbd5e1"
+            mau = MAU_XONG
         su_kien.append({
             "title": kh["name"], "start": kh["start_date"],
             "allDay": True, "color": mau,
+        })
+    # thêm ghi chú ngày quan trọng lên lịch
+    for g in ghi_chu:
+        su_kien.append({
+            "title": "⭐ " + g["noi_dung"], "start": g["ngay"],
+            "allDay": True, "color": MAU_NOTE,
         })
 
     tuy_chon_lich = {
@@ -120,23 +138,66 @@ with tab_lich:
         "height": 520,
     }
     calendar(events=su_kien, options=tuy_chon_lich, key="lich_thang")
-    st.caption("🔵 Xanh: chưa kích hoạt  •  ⚫ Đen: đang tiến hành  •  ⚪ Xám nhạt: đã hoàn thành")
+    st.caption("🔵 Chưa kích hoạt  •  🔘 Đang tiến hành  •  ⚪ Hoàn thành  •  ⭐ Ngày quan trọng")
 
     st.divider()
-    with st.expander("➕ Tạo kế hoạch mới", expanded=True):
-        with st.form("form_tao", clear_on_submit=True):
-            ten = st.text_input("Tên kế hoạch")
-            mo_ta = st.text_area("Ghi chú (không bắt buộc)")
-            ngay = st.date_input("Ngày triển khai", value=date.today())
-            if st.form_submit_button("Lưu kế hoạch"):
-                if ten.strip() == "":
-                    st.warning("Bạn cần nhập tên kế hoạch.")
-                else:
-                    supabase.table("tasks").insert({
-                        "name": ten, "description": mo_ta, "start_date": str(ngay)
-                    }).execute()
-                    st.success("Đã lưu: " + ten)
-                    st.rerun()
+    col_kh, col_gc = st.columns(2)
+
+    # ----- Tạo kế hoạch -----
+    with col_kh:
+        with st.expander("➕ Tạo kế hoạch mới", expanded=False):
+            with st.form("form_tao", clear_on_submit=True):
+                ten = st.text_input("Tên kế hoạch")
+                mo_ta = st.text_area("Ghi chú (không bắt buộc)")
+                ngay = st.date_input("Ngày triển khai", value=date.today())
+                if st.form_submit_button("Lưu kế hoạch"):
+                    if ten.strip() == "":
+                        st.warning("Bạn cần nhập tên kế hoạch.")
+                    else:
+                        supabase.table("tasks").insert({
+                            "name": ten, "description": mo_ta, "start_date": str(ngay)
+                        }).execute()
+                        st.success("Đã lưu: " + ten)
+                        st.rerun()
+
+    # ----- Thêm ghi chú ngày quan trọng -----
+    with col_gc:
+        with st.expander("⭐ Thêm ghi chú ngày quan trọng", expanded=False):
+            with st.form("form_note", clear_on_submit=True):
+                nd_note = st.text_input("Nội dung (VD: Họp tổng kết)")
+                ngay_note = st.date_input("Ngày", value=date.today())
+                if st.form_submit_button("Lưu ghi chú"):
+                    if nd_note.strip() == "":
+                        st.warning("Bạn cần nhập nội dung ghi chú.")
+                    else:
+                        supabase.table("notes").insert({
+                            "noi_dung": nd_note, "ngay": str(ngay_note), "mau": MAU_NOTE
+                        }).execute()
+                        st.success("Đã lưu ghi chú.")
+                        st.rerun()
+
+    # ----- Danh sách ghi chú (sửa/xóa) -----
+    if ghi_chu:
+        with st.expander("📋 Quản lý các ghi chú ngày quan trọng"):
+            for g in ghi_chu:
+                gc1, gc2, gc3 = st.columns([0.25, 0.6, 0.15])
+                gc1.write("⭐ " + str(g["ngay"]))
+                gc2.write(g["noi_dung"])
+                with gc3:
+                    with st.popover("⋯"):
+                        with st.form(f"sua_note_{g['id']}"):
+                            n_nd = st.text_input("Nội dung", value=g["noi_dung"])
+                            n_ng = st.date_input("Ngày",
+                                value=pd.to_datetime(g["ngay"]).date())
+                            k1, k2 = st.columns(2)
+                            if k1.form_submit_button("💾 Lưu"):
+                                supabase.table("notes").update({
+                                    "noi_dung": n_nd, "ngay": str(n_ng)
+                                }).eq("id", g["id"]).execute()
+                                st.rerun()
+                            if k2.form_submit_button("🗑️ Xóa"):
+                                supabase.table("notes").delete().eq("id", g["id"]).execute()
+                                st.rerun()
 
 # ================================================================
 # TAB 2: DANH MỤC CÔNG VIỆC
@@ -217,14 +278,11 @@ with tab_congviec:
                                 supabase.table("subtasks").delete().eq("id", d["id"]).execute()
                                 st.rerun()
 
-                                    # ---- THÊM NHIỀU ĐẦU VIỆC KÈM HẠN, LƯU MỘT LẦN ----
+            # ---- THÊM NHIỀU ĐẦU VIỆC, LƯU MỘT LẦN, BẢNG TRỐNG LẠI SAU KHI LƯU ----
             st.markdown("**➕ Thêm đầu việc mới (nhập nhiều dòng, chọn ngày, rồi lưu một lần)**")
-
-            # biến đếm để làm mới bảng sau khi lưu (mỗi kế hoạch một biến riêng)
             dem_key = f"reset_{kh['id']}"
             if dem_key not in st.session_state:
                 st.session_state[dem_key] = 0
-
             bang_moi = pd.DataFrame(columns=["Đầu việc", "Hạn chót"])
             ket_qua_nhap = st.data_editor(
                 bang_moi,
@@ -252,13 +310,11 @@ with tab_congviec:
                     }).execute()
                     dem += 1
                 if dem > 0:
-                    st.session_state[dem_key] += 1   # đổi key -> bảng trống lại
+                    st.session_state[dem_key] += 1
                     st.success(f"Đã thêm {dem} đầu việc.")
                     st.rerun()
                 else:
                     st.warning("Bạn chưa nhập đầu việc nào.")
-
-
 
             st.divider()
             # ---- Nhân bản / Sửa / Xóa kế hoạch ----
