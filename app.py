@@ -115,6 +115,22 @@ def tinh_canh_bao(danh_sach):
     ds.sort(key=lambda x: x["con"])
     return ds
 
+@st.dialog("📌 Tiến độ công việc")
+def xem_tien_do(kh):
+    st.subheader(kh["name"])
+    st.caption("Ngày triển khai: " + str(kh["start_date"]))
+    if kh["description"]:
+        st.write(kh["description"])
+    st.markdown(nhan_trang_thai(kh["_trang_thai"], kh["_xong"], kh["_tong"]))
+    if kh["_tong"] > 0:
+        st.progress(kh["_xong"] / kh["_tong"])
+    for d in kh["_dau_viec"]:
+        ten_viec = f"~~{d['content']}~~" if d["is_done"] else d["content"]
+        st.markdown(("✅ " if d["is_done"] else "⬜ ") + ten_viec + nhan_han(d))
+    if st.button("Đóng"):
+        st.session_state["xem_tien_do_id"] = None
+        st.rerun()
+
 # ---------- Lấy dữ liệu (gộp query + xử lý lỗi) ----------
 try:
     danh_sach = supabase.table("tasks").select("*").order("start_date").execute().data
@@ -138,22 +154,9 @@ for kh in danh_sach:
     kh["_tong"] = tong
     kh["_xong"] = xong
 
-# ---------- Ô tổng quan ----------
-so_dang = len([k for k in danh_sach if k["_trang_thai"] == "dang_tien_hanh"])
-so_chua = len([k for k in danh_sach if k["_trang_thai"] == "chua_kich_hoat"])
-so_xong = len([k for k in danh_sach if k["_trang_thai"] == "hoan_thanh"])
-
-# Tính cảnh báo — dùng chung cho ô metric, nhãn tab và nội dung tab Cảnh báo
+# Tính cảnh báo — dùng chung cho nhãn tab và nội dung tab Cảnh báo
 canh_bao = tinh_canh_bao(danh_sach)
 so_canh_bao = len(canh_bao)
-
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("🔄 Đang tiến hành", so_dang)
-c2.metric("⚠️ Cần chú ý", so_canh_bao)
-c3.metric("🔵 Chưa kích hoạt", so_chua)
-c4.metric("✅ Hoàn thành", so_xong)
-
-st.divider()
 
 nhan_tab_cb = f"⚠️ Cảnh báo ({so_canh_bao})" if so_canh_bao else "⚠️ Cảnh báo"
 tab_lich, tab_congviec, tab_canhbao = st.tabs(
@@ -168,6 +171,7 @@ with tab_lich:
     su_kien = []
     for kh in danh_sach:
         su_kien.append({
+            "id": f"kh_{kh['id']}",
             "title": kh["name"], "start": kh["start_date"],
             "allDay": True, "color": MAU_THEO_TT[kh["_trang_thai"]],
         })
@@ -206,9 +210,25 @@ with tab_lich:
         overflow: visible;
     }
     """
-    calendar(events=su_kien, options=tuy_chon_lich,
-             custom_css=css_lich, key="lich_thang")
-    st.caption("🔵 Chưa kích hoạt  •  🔘 Đang tiến hành  •  ⚪ Hoàn thành  •  ⭐ Ngày quan trọng")
+    ket_qua_lich = calendar(events=su_kien, options=tuy_chon_lich,
+                             custom_css=css_lich, key="lich_thang")
+    st.caption("🔵 Chưa kích hoạt  •  🔘 Đang tiến hành  •  ⚪ Hoàn thành  •  ⭐ Ngày quan trọng  •  Bấm vào kế hoạch để xem tiến độ")
+
+    # ----- Bấm vào kế hoạch trên lịch -> mở hộp thoại tiến độ -----
+    if ket_qua_lich and ket_qua_lich.get("callback") == "eventClick":
+        id_su_kien = ket_qua_lich["eventClick"]["event"].get("id", "")
+        if id_su_kien and id_su_kien != st.session_state.get("lich_su_kien_da_xu_ly"):
+            st.session_state["lich_su_kien_da_xu_ly"] = id_su_kien
+            if id_su_kien.startswith("kh_"):
+                st.session_state["xem_tien_do_id"] = int(id_su_kien[3:])
+                st.rerun()
+
+    if st.session_state.get("xem_tien_do_id"):
+        kh_chon = next((k for k in danh_sach if k["id"] == st.session_state["xem_tien_do_id"]), None)
+        if kh_chon:
+            xem_tien_do(kh_chon)
+        else:
+            st.session_state["xem_tien_do_id"] = None
 
     st.divider()
     col_kh, col_gc = st.columns(2)
