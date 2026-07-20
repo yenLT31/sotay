@@ -171,7 +171,31 @@ with tab_lich:
         "headerToolbar": {"left": "prev,next today", "center": "title", "right": ""},
         "height": 520,
     }
-    calendar(events=su_kien, options=tuy_chon_lich, key="lich_thang")
+    css_lich = """
+    /* Rê chuột vào sự kiện để xem đầy đủ tên kế hoạch */
+    .fc-daygrid-day-frame,
+    .fc-daygrid-day-events,
+    .fc-daygrid-event-harness { overflow: visible !important; }
+
+    .fc-daygrid-event .fc-event-title {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .fc-daygrid-event { cursor: pointer; }
+    .fc-daygrid-event:hover {
+        position: relative;
+        z-index: 999;
+        box-shadow: 0 3px 12px rgba(0,0,0,0.30);
+        border-radius: 5px;
+    }
+    .fc-daygrid-event:hover .fc-event-title {
+        white-space: normal;
+        overflow: visible;
+    }
+    """
+    calendar(events=su_kien, options=tuy_chon_lich,
+             custom_css=css_lich, key="lich_thang")
     st.caption("🔵 Chưa kích hoạt  •  🔘 Đang tiến hành  •  ⚪ Hoàn thành  •  ⭐ Ngày quan trọng")
 
     st.divider()
