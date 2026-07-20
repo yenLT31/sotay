@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from supabase import create_client
 from streamlit_calendar import calendar
 
@@ -52,11 +53,15 @@ def tinh_trang_thai(dau_viec):
         return "hoan_thanh", tong, xong
     return "dang_tien_hanh", tong, xong
 
+def hom_nay_vn():
+    # Server Streamlit Cloud chạy giờ UTC → lấy ngày theo giờ Việt Nam cho chuẩn
+    return datetime.now(ZoneInfo("Asia/Ho_Chi_Minh")).date()
+
 def han_con_lai(deadline_str):
     if not deadline_str:
         return None
     d = pd.to_datetime(deadline_str).date()
-    return (d - date.today()).days
+    return (d - hom_nay_vn()).days
 
 def nhan_han(d):
     if not d["deadline"] or d["is_done"]:
@@ -67,6 +72,36 @@ def nhan_han(d):
     elif con is not None and con <= 7:
         return f"  🟠 {d['deadline']} (còn {con}n)"
     return f"  ⏰ {d['deadline']}"
+
+def tinh_canh_bao(danh_sach):
+    """Danh sách cảnh báo, sắp xếp: khẩn cấp (quá hạn nhiều nhất) lên đầu.
+    - Kế hoạch CHƯA kích hoạt  -> đếm ngược tới ngày triển khai, ngưỡng 3 ngày.
+    - Đầu việc kế hoạch ĐANG tiến hành -> đếm ngược tới deadline, ngưỡng 1 ngày.
+    - Kế hoạch đã hoàn thành: bỏ qua.
+    """
+    hom_nay = hom_nay_vn()
+    ds = []
+    for kh in danh_sach:
+        tt = kh["_trang_thai"]
+        if tt == "chua_kich_hoat":
+            if not kh.get("start_date"):
+                continue
+            ngay = pd.to_datetime(kh["start_date"]).date()
+            con = (ngay - hom_nay).days
+            if con <= 3:
+                ds.append({"loai": "ke_hoach", "ten_kh": kh["name"],
+                           "ten_dv": None, "ngay": ngay, "con": con})
+        elif tt == "dang_tien_hanh":
+            for d in kh["_dau_viec"]:
+                if d["is_done"] or not d["deadline"]:
+                    continue
+                dl = pd.to_datetime(d["deadline"]).date()
+                con = (dl - hom_nay).days
+                if con <= 1:
+                    ds.append({"loai": "dau_viec", "ten_kh": kh["name"],
+                               "ten_dv": d["content"], "ngay": dl, "con": con})
+    ds.sort(key=lambda x: x["con"])
+    return ds
 
 # ---------- Lấy dữ liệu ----------
 ket_qua = supabase.table("tasks").select("*").order("start_date").execute()
@@ -88,23 +123,22 @@ ghi_chu = gc_kq.data
 so_dang = len([k for k in danh_sach if k["_trang_thai"] == "dang_tien_hanh"])
 so_chua = len([k for k in danh_sach if k["_trang_thai"] == "chua_kich_hoat"])
 so_xong = len([k for k in danh_sach if k["_trang_thai"] == "hoan_thanh"])
-so_sap_han = 0
-for k in danh_sach:
-    for d in k["_dau_viec"]:
-        if not d["is_done"] and d["deadline"]:
-            con = han_con_lai(d["deadline"])
-            if con is not None and con <= 7:
-                so_sap_han += 1
+
+# Tính cảnh báo — dùng chung cho ô metric, nhãn tab và nội dung tab Cảnh báo
+canh_bao = tinh_canh_bao(danh_sach)
+so_canh_bao = len(canh_bao)
 
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("🔄 Đang tiến hành", so_dang)
-c2.metric("⏰ Sắp/quá hạn", so_sap_han)
+c2.metric("⚠️ Cần chú ý", so_canh_bao)
 c3.metric("🔵 Chưa kích hoạt", so_chua)
 c4.metric("✅ Hoàn thành", so_xong)
 
 st.divider()
 
-tab_lich, tab_congviec = st.tabs(["🗓️ Lịch & Kế hoạch", "📋 Danh mục công việc"])
+nhan_tab_cb = f"⚠️ Cảnh báo ({so_canh_bao})" if so_canh_bao else "⚠️ Cảnh báo"
+tab_lich, tab_congviec, tab_canhbao = st.tabs(
+    ["🗓️ Lịch & Kế hoạch", "📋 Danh mục công việc", nhan_tab_cb])
 
 # ================================================================
 # TAB 1: LỊCH + TẠO KẾ HOẠCH + GHI CHÚ NGÀY QUAN TRỌNG
@@ -351,3 +385,53 @@ with tab_congviec:
                         if x2.form_submit_button("🗑️ Xóa cả kế hoạch"):
                             supabase.table("tasks").delete().eq("id", kh["id"]).execute()
                             st.rerun()
+
+# ================================================================
+# TAB 3: CẢNH BÁO (quá hạn + sắp đến hạn)
+# ================================================================
+with tab_canhbao:
+    st.header("⚠️ Cảnh báo công việc")
+    st.caption("Kế hoạch chưa kích hoạt: nhắc trước 3 ngày tới ngày triển khai  •  "
+               "Đầu việc đang làm: nhắc trước 1 ngày tới hạn.")
+
+    if not canh_bao:
+        st.success("✅ Không có việc nào quá hạn hay sắp đến hạn.")
+    else:
+        loc = st.radio("Lọc:", ["Tất cả", "🔴 Quá hạn", "🟠 Sắp đến hạn"],
+                       horizontal=True)
+        if loc == "🔴 Quá hạn":
+            hien = [c for c in canh_bao if c["con"] < 0]
+        elif loc == "🟠 Sắp đến hạn":
+            hien = [c for c in canh_bao if c["con"] >= 0]
+        else:
+            hien = canh_bao
+
+        if not hien:
+            st.info("Không có mục nào trong nhóm này.")
+
+        for c in hien:
+            if c["con"] < 0:
+                mau, tt_txt = MAU_QUA_HAN, f"Quá hạn {abs(c['con'])} ngày"
+            elif c["con"] == 0:
+                mau, tt_txt = MAU_QUA_HAN, "Đến hạn hôm nay"
+            else:
+                mau, tt_txt = MAU_SAP_HAN, f"Còn {c['con']} ngày"
+
+            if c["loai"] == "ke_hoach":
+                dong = f"📋 <b>{c['ten_kh']}</b> — chưa có đầu việc"
+                nhan_ngay = f"Ngày triển khai: {c['ngay'].strftime('%d/%m/%Y')}"
+            else:
+                dong = f"📋 {c['ten_kh']} › <b>{c['ten_dv']}</b>"
+                nhan_ngay = f"Hạn chót: {c['ngay'].strftime('%d/%m/%Y')}"
+
+            st.markdown(
+                f"""
+                <div style="border-left:4px solid {mau}; background:{mau}15;
+                            padding:8px 12px; margin-bottom:6px; border-radius:8px;">
+                  <span style="color:{mau}; font-weight:700;">● {tt_txt}</span>
+                  &nbsp;·&nbsp; {dong}
+                  <br><span style="color:#8a94a6; font-size:0.85em;">{nhan_ngay}</span>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
